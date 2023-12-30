@@ -1,0 +1,318 @@
+- hosts: all
+  become: true
+
+  handlers:
+    - name: kubectl version client
+      command: kubectl version --client
+    - name: helm version
+      command: helm version
+    - name: fail2ban status
+      service: name=fail2ban state=started
+    - name: sendmail status
+      service: name=sendmail state=started
+    # Handlers for HAproxy
+    - name: restart haproxy
+      service: name=haproxy state=restarted
+    - name: reload haproxy
+      service: name=haproxy state=reloaded
+    - name: start haproxy
+      service: name=haproxy state=started
+
+
+  tasks:
+    - name: 'Add SSH keys for AdminVM->Node communication'
+      copy:
+        src: "./files/.ssh/id_rsa"
+        dest: "/home/adm/.ssh/id_rsa"
+        mode: '0600'
+        owner: adm
+        group: adm
+    - name: Change .ssh directory ownership, group and permissions
+      file:
+        path: /home/adm/.ssh/
+        owner: adm
+        group: adm
+        mode: '0700'
+    - name: Change authorized_keys file owner and permissions
+      file:
+        path: /home/adm/.ssh/authorized_keys
+        owner: adm
+        group: adm
+        mode: '0600'
+
+    - name: package repository update
+      apt:
+        update_cache: yes
+
+    - name: Install packages that allow apt to be used over HTTPS and other reqs
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+        - ansible
+        - screen
+
+    - name: Add an apt signing key for kubectl
+      apt_key:
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        state: present
+
+    - name: Add an apt signing key for helm
+      apt_key:
+        url: https://helm.baltorepo.com/organization/signing.asc
+        state: present
+
+# Kubectl
+    - name: Add apt repo for kubectl
+      apt_repository:
+        repo: 'deb [arch=amd64] http://apt.kubernetes.io/ kubernetes-xenial main'
+        state: present
+    - name: Add apt repo for helm
+      apt_repository:
+        repo: "deb https://baltocdn.com/helm/stable/debian/ all main"
+        state: present
+
+    - name: Install Kubernetes and helm binaries
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+        - kubectl
+        - helm
+      notify:
+      - kubectl version client
+      - helm version
+
+# Fail2ban && SendMail
+    - name: Install fail2ban
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+        - fail2ban
+        - sendmail
+      notify:
+      - fail2ban status
+      - sendmail status
+
+    - name: Configure fail2ban
+      copy:
+        src: "./files/fail2ban/fail2ban.local"
+        dest: "/etc/fail2ban/fail2ban.conf"
+    - name: Create jail.conf local
+      copy:
+        src: "./files/fail2ban/jail.local"
+        dest: "/etc/fail2ban/jail.conf"
+
+# Download the latest RKE binary
+    - name: Download and install the latest RKE binary
+      get_url:
+        url: https://github.com/rancher/rke/releases/download/v1.1.4/rke_linux-amd64
+        dest: /usr/local/bin/rke
+        mode: 0755
+
+    - name: 'Add cluster.yml file'
+      copy:
+        src: "./files/cluster.yml"
+        dest: "/home/adm/cluster.yml"
+        mode: '0600'
+        owner: adm
+        group: adm
+    - name: 'Add ansible_hosts file'
+      copy:
+        src: "./files/ansible_hosts"
+        dest: "/home/adm/ansible_hosts"
+        mode: '0600'
+        owner: adm
+        group: adm
+
+    - name: Add helm repo for Rancher
+      become: yes
+      become_user: adm
+      command: 'helm repo add rancher-latest https://releases.rancher.com/server-charts/latest'
+
+# Script to harden sshd and others configs
+    - name: Transfer the script
+      copy:
+        src: "./files/harden_sshd.sh"
+        dest: "/home/adm/harden_sshd.sh"
+        mode: '0700'
+    - name: Execute the script
+      shell: sh /home/adm/harden_sshd.sh
+# Ansible task to add /dev/sdb as disk for Longhorn CSI
+    - name: 'Add ansible task for longhorn disk'
+      copy:
+        src: "./files/ansible_dev_add_longhorn_disk.yml"
+        dest: "/home/adm/ansible_dev_add_longhorn_disk.yml"
+        mode: '0600'
+        owner: adm
+        group: adm
+    - name: 'Add ansible playbook for longhorn disk resize'
+      copy:
+        src: "./files/ansible_dev_resize_sdb1.yml"
+        dest: "/home/adm/ansible_dev_resize_sdb1.yml"
+        mode: '0600'
+        owner: adm
+        group: adm
+    - name: 'Add shell script for fstab entry '
+      copy:
+        src: "./files/add_longhorn_disk.sh"
+        dest: "/home/adm/add_longhorn_disk.sh"
+        mode: '0700'
+        owner: adm
+        group: adm
+
+# Instals and configure HAProxy   // not needed, moved to lb role
+
+#    - name: Download and install haproxy
+#      apt: name=haproxy state=present
+#
+#    - name: Configure the haproxy cnf file with hosts
+#      template: src=./files/haproxy.cfg dest=/etc/haproxy/haproxy.cfg
+##      notify: start haproxy
+#
+#    - name: Start the haproxy service
+#      service: name=haproxy state=started enabled=yes
+
+# Ansible task to add /dev/sdd as disk for Longhorn backups
+    - name: 'Add ansible playbook for longhorn backup disk'
+      copy:
+        src: "./files/ansible_dev_nfs_export.yml"
+        dest: "/home/adm/ansible_dev_nfs_export.yml"
+        mode: '0600'
+        owner: adm
+        group: adm
+    - name: 'Add shell script for fstab and /etc/exports entry '
+      copy:
+        src: "./files/add_longhorn_backup_disk.sh"
+        dest: "/home/adm/add_longhorn_backup_disk.sh"
+        mode: '0700'
+        owner: adm
+        group: adm
+
+# Code for lpar2rrd Infra / VM monitoring server side
+    - name: 'Add lpar2rrd user'
+      user:
+        name: lpar2rrd
+        groups: dialout,cdrom,floppy,audio,dip,video,plugdev
+        shell: '/bin/bash'
+        append: yes
+    - name: 'Install packages needed for lpar2rrd server side'
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+        - apache2
+        - perl
+        - rrdtool
+        - ed
+        - bc
+        - librrdp-perl
+        - libxml-sax-perl
+        - libxml-simple-perl
+        - libtimedate-perl
+        - libenv-sanctify-perl
+        - libcgi-pm-perl
+        - libdata-dumper-simple-perl
+        - libpdf-api2-perl
+        - libxml2-utils
+        - liblwp-protocol-https-perl
+        - libcrypt-ssleay-perl
+        - libio-socket-ssl-perl
+        - libmozilla-ldap-perl
+        - libxml-parser-perl
+    - name: 'Add nofile limits for lpar2rrd server'
+      pam_limits:
+        domain: lpar2rrd
+        limit_type: soft
+        limit_item: nofile
+        value: '32768'
+    - name: 'Add nofile limits for lpar2rrd server'
+      pam_limits:
+        domain: lpar2rrd
+        limit_type: hard
+        limit_item: nofile
+        value: '32768'
+    - name: 'Add nproc limits for lpar2rrd server'
+      pam_limits:
+        domain: lpar2rrd
+        limit_type: soft
+        limit_item: nproc
+        value: '2000'
+    - name: 'Add nproc limits for lpar2rrd server'
+      pam_limits:
+        domain: lpar2rrd
+        limit_type: hard
+        limit_item: nproc
+        value: '2000'
+    - name: 'Add data limits for lpar2rrd server'
+      pam_limits:
+        domain: lpar2rrd
+        limit_type: soft
+        limit_item: data
+        value: '-1'
+    - name: 'Add data limits for lpar2rrd server'
+      pam_limits:
+        domain: lpar2rrd
+        limit_type: hard
+        limit_item: data
+        value: '-1'
+    - name: 'Add stack limits for lpar2rrd server'
+      pam_limits:
+        domain: lpar2rrd
+        limit_type: soft
+        limit_item: stack
+        value: '-1'
+    - name: 'Add stack limits for lpar2rrd server'
+      pam_limits:
+        domain: lpar2rrd
+        limit_type: hard
+        limit_item: stack
+        value: '-1'
+    - name: 'Add stack limits for apache'
+      pam_limits:
+        domain: apache
+        limit_type: soft
+        limit_item: stack
+        value: '-1'
+    - name: 'Add stack limits for apache'
+      pam_limits:
+        domain: apache
+        limit_type: hard
+        limit_item: stack
+        value: '-1'
+    - name: 'Add date limits for apache'
+      pam_limits:
+        domain: apache
+        limit_type: soft
+        limit_item: data
+        value: '-1'
+    - name: 'Add data limits for apache'
+      pam_limits:
+        domain: apache
+        limit_type: hard
+        limit_item: data
+        value: '-1'
+
+    - name: 'Copy lpar2rrd server package'
+      copy:
+        src: "./files/lpar2rrd/lpar2rrd-6.20.tar"
+        dest: "/home/lpar2rrd/lpar2rrd-6.20.tar"
+        mode: '0700'
+        owner: lpar2rrd
+        group: lpar2rrd
+    - name: 'Copy lpar2rrd agent package'
+      copy:
+        src: "./files/lpar2rrd/lpar2rrd-agent_6.15-0_all.deb"
+        dest: "/home/lpar2rrd/lpar2rrd-agent_6.15-0_all.deb"
+        mode: '0700'
+        owner: lpar2rrd
+        group: lpar2rrd

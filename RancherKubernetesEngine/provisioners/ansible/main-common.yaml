@@ -1,0 +1,157 @@
+- hosts: all
+  become: true
+
+  handlers:
+    - name: docker status
+      service: name=docker state=started
+
+  tasks:
+    - name: package repository update
+      apt:
+        update_cache: yes
+
+    - name: Install packages that allow apt to be used over HTTPS and other reqs
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - gnupg-agent
+        - software-properties-common
+        - vim
+        - iputils-ping
+        - traceroute
+
+# Docker
+    - name: Add an apt signing key for Docker
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add apt repository for stable version
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable
+        state: present
+
+    - name: Install docker and its dependecies
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+        - docker-ce
+      notify:
+        - docker status
+
+# Disable apt unattended updates
+    - name: Disable unattended upgrades
+      apt:
+        name: unattended-upgrades
+        state: absent
+
+# Add adm user used for cluster provisioning
+    - name: Add adm user
+      user:
+        name: adm
+    #only for GCP,  google-sudoers  group
+        #groups: google-sudoers,docker,sudo,adm,dialout,cdrom,floppy,audio,dip,video,plugdev,lxd,netdev
+        groups: docker,sudo,adm,dialout,cdrom,floppy,audio,dip,video,plugdev
+        shell: '/bin/bash'
+        append: yes
+
+# Add admin SSH keys to the provisioning user
+    - name: Create .ssh directory
+      file:
+        path: /home/adm/.ssh/
+        state: directory
+        recurse: yes
+    - name: Add SSH keys for admins
+      copy:
+        src: "./files/.ssh/authorized_keys"
+        dest: "/home/adm/.ssh/authorized_keys"
+
+# Configure tunables required for k8s, elasticsearch and reload services if necessary
+    - name: 'sysctl set vm.max_map_count'
+      sysctl:
+        name: vm.max_map_count
+        value: '262144'
+        sysctl_set: yes
+        state: present
+        reload: yes
+    - name: 'sysctl set vm.overcommit_memory'
+      sysctl:
+        name: vm.overcommit_memory
+        value: '1'
+        sysctl_set: yes
+        state: present
+        reload: yes
+    - name: 'sysctl set kernel.panic'
+      sysctl:
+        name: kernel.panic
+        value: '10'
+        sysctl_set: yes
+        state: present
+        reload: yes
+    - name: 'sysctl set kernel.panic_on_oops'
+      sysctl:
+        name: kernel.panic_on_oops
+        value: '1'
+        sysctl_set: yes
+        state: present
+        reload: yes
+    - name: 'sysctl set net.ipv4.tcp_retries2'
+      sysctl:
+        name: net.ipv4.tcp_retries2
+        value: '5'
+        sysctl_set: yes
+        state: present
+        reload: yes
+    - name: configure system settings, file descriptors and number of threads
+      pam_limits:
+        domain: elasticsearch
+        limit_type: "{{ item.limit_type }}"
+        limit_item: "{{ item.limit_item }}"
+        value: "{{ item.value }}"
+      with_items:
+        - { limit_type: '-', limit_item: 'nofile', value: 65536 }
+        - { limit_type: '-', limit_item: 'nproc', value: 65536 }
+        - { limit_type: 'soft', limit_item: 'memlock', value: unlimited }
+        - { limit_type: 'hard', limit_item: 'memlock', value: unlimited }
+    - name: reload settings from all system configuration files
+      shell: sysctl --system
+# Code for lpar2rrd Infra / VM monitoring agent side
+    - name: 'Add lpar2rrd user'
+      user:
+        name: lpar2rrd
+        groups: dialout,cdrom,floppy,audio,dip,video,plugdev
+        shell: '/bin/bash'
+        append: yes
+    - name: 'Copy lpar2rrd agent package'
+      copy:
+        src: "./files/lpar2rrd/lpar2rrd-agent_6.15-0_all.deb"
+        dest: "/home/lpar2rrd/lpar2rrd-agent_6.15-0_all.deb"
+        mode: '0700'
+        owner: lpar2rrd
+        group: lpar2rrd
+    - name: 'Install packages needed for lpar2rrd agent side'
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+        - perl
+    - name: 'Install lpar2rrd agent'
+      shell: dpkg -i /home/lpar2rrd/lpar2rrd-agent_6.15-0_all.deb
+    - name: 'Add lpar2rrd cron job'
+      cron:
+        user: lpar2rrd
+        name: "gather OS metrics"
+        minute: "*"
+        hour: "*"
+        job: "/usr/bin/perl /opt/lpar2rrd-agent/lpar2rrd-agent.pl dev-platform-admin > /var/tmp/lpar2rrd-agent.out 2>&1"

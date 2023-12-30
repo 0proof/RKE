@@ -1,0 +1,66 @@
+---
+- name: oVirt ansible collection
+  hosts: localhost
+  connection: local
+  vars_files:
+    # Contains encrypted `engine_password` varibale using ansible-vault
+    - passwords.yml
+  
+  tasks:
+    - block:
+        # The use of ovirt.ovirt before ovirt_auth is to check if the collection is correctly loaded
+        - name: Obtain SSO token with using username/password credentials
+          ovirt_auth:
+            url: https://engine.local/ovirt-engine/api
+            username: admin@internal
+            ca_file: ./ca.cer
+            password: "{{engine_password}}"
+
+        # Create network
+        - ovirt_network:
+            auth: "{{ ovirt_auth }}"
+            data_center: "Default"
+            clusters: 
+               - name: "Default"
+                 assigned: true
+                 required: true
+                 display: false
+                 migrations: true
+                 gluster: false
+            name: "platform-infra-dev"
+            description: " platform network for infra k8s dev env"
+            vlan_tag: 999
+            vm_network: true
+            state: present
+        
+        # Attach network to host
+        - ovirt_host_network:
+            auth: "{{ ovirt_auth }}"
+            name: "ovirtn2.local"
+            check: true
+            save: true
+            interface: "ens2f1"
+            networks:
+              - name: platform-infra-dev
+                boot_protocol: dhcp
+
+        # Import image from Glance as a template
+        - ovirt_template:
+            auth: "{{ ovirt_auth }}"
+            timeout: 500
+            state: imported
+            name: "ubuntu-20-04"
+            template_image_disk_name: "ubuntu-20-04"
+            image_provider: "ovirt-image-repository"
+            image_disk: "Ubuntu Server 20.04 LTS (Focal Fossa) Cloud Image v20201016 for x86_64"
+            storage_domain: vmstore
+            cluster: Default
+
+
+      always:
+        - name: Always revoke the SSO token
+          ovirt_auth:
+            state: absent
+            ovirt_auth: "{{ ovirt_auth }}"
+  collections:
+    - ovirt.ovirt

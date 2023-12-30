@@ -1,0 +1,93 @@
+# This role contains common plays that will run on all nodes.
+
+- name: package repository update
+  apt:
+    update_cache: yes
+# Disable apt updates
+- name: Disable unattended upgrades
+  apt:
+    name: unattended-upgrades
+    state: absent
+# Install needed tools
+- name: Install packages that allow apt to be used over HTTPS and other reqs
+  apt:
+    name: "{{ packages }}"
+    state: present
+    update_cache: yes
+  vars:
+    packages:
+    - apt-transport-https
+    - ca-certificates
+    - curl
+    - gnupg-agent
+    - software-properties-common
+    - vim
+    - iputils-ping
+    - traceroute
+
+# Install  Docker
+- name: Add an apt signing key for Docker
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+
+- name: Add apt repository for stable version
+  apt_repository:
+    repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable
+    state: present
+
+- name: Install docker and its dependecies
+  apt:
+    name: "{{ packages }}"
+    state: present
+    update_cache: yes
+  vars:
+    packages:
+    - docker-ce
+  notify:
+    - docker status
+
+# Lock docker-ce package version
+- name: Lock Docker package version
+  command: apt-mark hold docker-ce
+  register: output
+
+# Add adm user used for cluster provisioning
+- name: Add adm user
+  user:
+    name: adm
+#only for GCP,  google-sudoers  group
+#groups: google-sudoers,docker,sudo,adm,dialout,cdrom,floppy,audio,dip,video,plugdev,lxd,netdev
+    groups: 'docker,sudo,adm,dialout,cdrom,floppy,audio,dip,video,plugdev,lxd,netdev'
+    shell: '/bin/bash'
+    append: yes
+
+# Add admin SSH keys for the provisioning user on the Admin VM
+- name: Create .ssh directory
+  file:
+    path: /home/adm/.ssh/
+    state: directory
+    recurse: yes
+- name: Add SSH keys for admins
+  copy:
+    src: "./files/.ssh/authorized_keys"
+    dest: "/home/adm/.ssh/authorized_keys"
+- name: 'Add SSH keys for AdminVM->Node communication'
+  copy:
+    src: "./files/.ssh/id_rsa"
+    dest: "/home/adm/.ssh/id_rsa"
+    mode: '0600'
+    owner: adm
+    group: adm
+- name: Change .ssh directory ownership, group and permissions
+  file:
+    path: /home/adm/.ssh/
+    owner: adm
+    group: adm
+    mode: '0700'
+- name: Change authorized_keys file owner and permissions
+  file:
+    path: /home/adm/.ssh/authorized_keys
+    owner: adm
+    group: adm
+    mode: '0600'

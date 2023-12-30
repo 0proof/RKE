@@ -1,0 +1,11 @@
+- hosts: dev-workers
+  become: true
+  tasks:
+      - name: "Resize Longhorn partition "
+        command: 'growpart -v -u auto /dev/sdb 1'
+
+      - name: 'Extend Longhorn FS'
+        filesystem:
+          fstype: 'ext4'
+          dev: '/dev/sdb1'
+          resizefs: yes

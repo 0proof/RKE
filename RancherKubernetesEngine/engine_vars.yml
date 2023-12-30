@@ -1,0 +1,4 @@
+---
+engine_url: https://engine.local/ovirt-engine/api
+engine_user: admin@internal
+engine_cafile: ./ca.pem

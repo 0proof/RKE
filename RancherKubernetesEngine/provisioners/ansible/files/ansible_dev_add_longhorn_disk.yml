@@ -1,0 +1,18 @@
+- hosts: dev-workers
+  sudo: true
+  tasks:
+    - name: install parted package
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+        - parted
+    - name: Create a new primary partition
+      parted:
+        device: /dev/sdb
+        label: msdos
+        number: 1
+        state: present
+    - script:  /home/adm/add_longhorn_disk.sh --creates /home/adm/added_fstab_entry.txt

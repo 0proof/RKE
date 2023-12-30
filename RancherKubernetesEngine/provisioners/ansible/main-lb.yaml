@@ -1,0 +1,89 @@
+- hosts: all
+  become: true
+
+    # Handlers for HAproxy
+  handlers:
+    - name: restart haproxy
+      service: name=haproxy state=restarted
+    - name: reload haproxy
+      service: name=haproxy state=reloaded
+    - name: start haproxy
+      service: name=haproxy state=started
+    - name: fail2ban status
+      service: name=fail2ban state=started
+    - name: sendmail status
+      service: name=sendmail state=started
+
+  tasks:
+# Add adm user used for cluster provisioning
+    - name: Add adm user
+      user:
+        name: adm
+    #only for GCP,  google-sudoers  group
+        #groups: google-sudoers,sudo,adm,dialout,cdrom,floppy,audio,dip,video,plugdev,lxd,netdev
+        groups: sudo,adm,dialout,cdrom,floppy,audio,dip,video,plugdev
+        shell: '/bin/bash'
+        append: yes
+
+# Add admin SSH keys to the provisioning user
+    - name: Create .ssh directory
+      file:
+        path: /home/adm/.ssh/
+        state: directory
+        recurse: yes
+    - name: Add SSH keys for admins
+      copy:
+        src: "./files/.ssh/authorized_keys"
+        dest: "/home/adm/.ssh/authorized_keys"
+
+    - name: Change .ssh directory ownership, group and permissions
+      file:
+        path: /home/adm/.ssh/
+        owner: adm
+        group: adm
+        mode: '0700'
+    - name: Change authorized_keys file owner and permissions
+      file:
+        path: /home/adm/.ssh/authorized_keys
+        owner: adm
+        group: adm
+        mode: '0600'
+
+    - name: package repository update
+      apt:
+        update_cache: yes
+
+# Fail2ban && SendMail
+    - name: Install fail2ban
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+        - fail2ban
+        - sendmail
+      notify:
+      - fail2ban status
+      - sendmail status
+
+    - name: Configure fail2ban
+      copy:
+        src: "./files/fail2ban/fail2ban.local"
+        dest: "/etc/fail2ban/fail2ban.conf"
+    - name: Create jail.conf local
+      copy:
+        src: "./files/fail2ban/jail.local"
+        dest: "/etc/fail2ban/jail.conf"
+
+# Instals and configure HAProxy
+
+    - name: Download and install haproxy
+      apt: name=haproxy state=present
+
+    - name: Configure the haproxy cnf file with hosts
+      template: src=./files/haproxy.cfg dest=/etc/haproxy/haproxy.cfg
+#      notify: start haproxy
+
+    - name: Start the haproxy service
+      service: name=haproxy state=started enabled=yes

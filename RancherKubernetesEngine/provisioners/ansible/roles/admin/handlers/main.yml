@@ -1,0 +1,10 @@
+---
+# Handlers for common notifications
+- name: kubectl version client
+  command: kubectl version --client
+- name: helm version
+  command: helm version
+- name: fail2ban status
+  service: name=fail2ban state=started
+- name: sendmail status
+  service: name=sendmail state=started

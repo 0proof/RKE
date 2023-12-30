@@ -1,0 +1,18 @@
+- hosts: dev-nfs
+  become: true
+  tasks:
+    - name: Create a new primary partition
+      parted:
+        device: /dev/sdd
+        label: msdos
+        number: 1
+        state: present
+
+    - name: Ensure NFS utilities are installed.
+      apt: name={{ item }} state=installed update_cache=yes
+      with_items:
+        - nfs-common
+        - nfs-kernel-server
+    - name: restart nfs server
+      service: name=nfs-kernel-server state=restarted
+    - script:  /home/adm/add_longhorn_backup_disk.sh --creates /home/adm/added_fstab_entry.txt

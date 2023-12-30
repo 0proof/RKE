@@ -1,0 +1,38 @@
+[dev-admin]
+dev-platform-admin ansible_python_interpreter=/usr/bin/python3
+
+[dev-masters]
+dev-platform-k8s-master-00 ansible_python_interpreter=/usr/bin/python3
+dev-platform-k8s-master-01 ansible_python_interpreter=/usr/bin/python3
+dev-platform-k8s-master-02 ansible_python_interpreter=/usr/bin/python3
+
+[dev-workers]
+dev-platform-k8s-node-00 ansible_python_interpreter=/usr/bin/python3
+dev-platform-k8s-node-01 ansible_python_interpreter=/usr/bin/python3
+dev-platform-k8s-node-02 ansible_python_interpreter=/usr/bin/python3
+dev-platform-k8s-node-03 ansible_python_interpreter=/usr/bin/python3
+dev-platform-k8s-node-04 ansible_python_interpreter=/usr/bin/python3
+
+[dev-nfs]
+dev-platform-k8s-node-04 ansible_python_interpreter=/usr/bin/python3
+
+[stg-admin]
+staging-platform-admin ansible_python_interpreter=/usr/bin/python3
+
+[stg-masters]
+staging-platform-k8s-master-00 ansible_python_interpreter=/usr/bin/python3
+staging-platform-k8s-master-01 ansible_python_interpreter=/usr/bin/python3
+staging-platform-k8s-master-02 ansible_python_interpreter=/usr/bin/python3
+
+[stg-workers]
+staging-platform-k8s-node-00 ansible_python_interpreter=/usr/bin/python3
+staging-platform-k8s-node-01 ansible_python_interpreter=/usr/bin/python3
+staging-platform-k8s-node-02 ansible_python_interpreter=/usr/bin/python3
+staging-platform-k8s-node-03 ansible_python_interpreter=/usr/bin/python3
+staging-platform-k8s-node-04 ansible_python_interpreter=/usr/bin/python3
+
+
+
+# ansible dev-masters -i ansible_hosts -m command -a 'systemctl status sendmail.service'
+# ansible dev-masters -i ansible_hosts -m shell -a 'echo "My kernel  is:          "; uname -a; echo "############# \n"; lsb_release -a'
+# ansible-playbook -i ansible_hosts ansible_dev_resize_sdb1.yml -vv                # Playbook for resizing Longhorn disk
